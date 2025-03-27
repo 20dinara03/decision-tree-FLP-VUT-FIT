@@ -10,6 +10,15 @@
 import System.Environment (getArgs)
 import Control.Exception (catch, IOException)
 import Numeric (showGFloat)
+import Data.List (nub, sort, group)
+import Data.Maybe (fromMaybe)
+
+debug :: Bool
+debug = True  -- поставь False, если не хочешь отладку
+
+debugLog :: String -> IO ()
+debugLog msg = if debug then putStrLn msg else return ()
+
 
 -- ================= DATA TYPES ==================
 
@@ -29,11 +38,11 @@ cleanLine line =
         restNoSpaces = filter (/= ' ') rest
     in leadingSpaces ++ restNoSpaces
 
--- Counts leading spaces in a line (indentation level)
+-- Counts leading spaces
 countSpaces :: String -> Int
 countSpaces = length . takeWhile (== ' ')
 
--- Splits a line by ':' and ',' without keeping them
+-- Splits a line by ':' and ',' 
 splitSpecial :: String -> [String]
 splitSpecial [] = []
 splitSpecial s =
@@ -42,13 +51,13 @@ splitSpecial s =
         [] -> [word]
         (_:xs) -> word : splitSpecial xs
 
--- Removes all spaces in a line (used after counting indentation)
+-- Removes all spaces in a line
 removeAllSpaces :: String -> String
 removeAllSpaces = filter (/= ' ')
 
 -- ================= TREE CONSTRUCTION ==================
 
--- Finds two children for a given node based on indentation level
+-- Finds two children for a given node 
 findChildren :: Int -> Int -> Int -> [((Int, Int), [String])] -> [((Int, Int), [String])]
 findChildren parentIdx childIndent siblingIdx allNodes =
     let children = filter (\((idx, sp), _) -> sp == childIndent && idx > parentIdx && (siblingIdx == -1 || idx < siblingIdx)) allNodes
@@ -56,7 +65,7 @@ findChildren parentIdx childIndent siblingIdx allNodes =
         [c1, c2] -> [c1, c2]
         _ -> error $ "Error: Expected 2 children at indentation level " ++ show childIndent ++ ", found " ++ show (length children)
 
--- Recursively builds a decision tree from a list of nodes
+-- Recursively builds a decision tree 
 buildTree :: [((Int, Int), [String])] -> (((Int, Int), [String]), [((Int, Int), [String])]) -> Int -> (Tree, [((Int, Int), [String])])
 buildTree allNodes (((idx, indent), tokens), rest) siblingIdx
     | head tokens == "Leaf" = (Tree (Leaf (tokens !! 1)) Empty Empty, rest)
@@ -92,7 +101,7 @@ printTree (Tree point left right) indent = do
 
 -- ================= CLASSIFICATION ==================
 
--- Classifies a single input using the decision tree
+-- Classifies a single input
 classify :: [Double] -> Tree -> String
 classify _ Empty = "Unknown"
 classify _ (Tree (Leaf label) _ _) = label
@@ -110,6 +119,68 @@ parseInput line = map read (splitSpecial line)
 -- Handles file read errors
 errorHandler :: IOException -> IO ()
 errorHandler _ = putStrLn "Error: File not found or cannot be read!"
+
+-- ====================================================
+gini :: [String] -> Double
+gini labels =
+    let total = fromIntegral $ length labels
+        groups = map length . group . sort $ labels
+        probs = map (\n -> fromIntegral n / total) groups
+    in 1.0 - sum (map (^2) probs)
+
+-- ====================================================
+
+splitRows :: Int -> Double -> [([Double], String)] -> ([([Double], String)], [([Double], String)])
+splitRows attrIndex threshold rows =
+    (filter (\(fs, _) -> fs !! attrIndex <= threshold) rows,
+     filter (\(fs, _) -> fs !! attrIndex > threshold) rows)
+
+-- ===================================================
+
+findBestSplit :: [([Double], String)] -> (Int, Double)
+findBestSplit rows =
+    let numAttrs = length (fst (head rows))
+        candidates = [(i, t) |
+            i <- [0 .. numAttrs - 1],
+            t <- nub . sort $ map (\(fs, _) -> fs !! i) rows]
+        score (i, t) =
+            let (left, right) = splitRows i t rows
+                total = fromIntegral $ length rows
+                giniLeft = gini (map snd left)
+                giniRight = gini (map snd right)
+                weighted = (fromIntegral (length left) / total) * giniLeft
+                         + (fromIntegral (length right) / total) * giniRight
+            in (weighted, (i, t))
+    in snd $ minimum $ map score candidates
+
+-- =================================================
+
+allSameClass :: [([Double], String)] -> Bool
+allSameClass [] = True
+allSameClass ((_, c):xs) = all ((== c) . snd) xs
+
+-- =================================================
+
+train :: [([Double], String)] -> Tree
+train [] = Empty
+train rows
+    | allSameClass rows = Tree (Leaf (snd (head rows))) Empty Empty
+    | otherwise =
+        let (bestAttr, bestThresh) = findBestSplit rows
+            (leftRows, rightRows) = splitRows bestAttr bestThresh rows
+            leftTree = train leftRows
+            rightTree = train rightRows
+        in Tree (Node bestAttr bestThresh) leftTree rightTree
+
+-- ==================================================
+
+parseTrainLine :: String -> ([Double], String)
+parseTrainLine line =
+    let parts = splitSpecial line
+        features = map read (init parts)   
+        label = last parts                 
+    in (features, label)
+
 
 -- ================= MAIN FUNCTION ==================
 
@@ -134,4 +205,13 @@ main = do
                 mapM_ putStrLn results
                 )
                 errorHandler
-        _ -> putStrLn "Usage: ./flp-fun -1 <tree_file> <data_file>"
+        ["-2", trainFile] -> do
+            catch (do
+                content <- readFile trainFile
+                let rows = map parseTrainLine (lines content)
+                let tree = train rows
+                printTree tree 0
+                )
+                errorHandler
+
+        _ -> putStrLn "Usage:\n  ./flp-fun -1 <tree_file> <data_file>\n  ./flp-fun -2 <train_file>"

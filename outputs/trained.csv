@@ -1,0 +1,25 @@
+Node: 2, 206.0
+  Node: 0, 43.2
+    Node: 0, 42.3
+      Node: 1, 16.6
+        Node: 0, 38.1
+          Leaf: Adelie
+          Leaf: Chinstrap
+        Leaf: Adelie
+      Node: 1, 17.3
+        Leaf: Chinstrap
+        Leaf: Adelie
+    Node: 3, 4100.0
+      Leaf: Chinstrap
+      Node: 0, 48.4
+        Node: 4, -0.5
+          Leaf: Adelie
+          Node: 0, 46.0
+            Leaf: Chinstrap
+            Leaf: Gentoo
+        Leaf: Chinstrap
+  Node: 1, 17.3
+    Leaf: Gentoo
+    Node: 0, 44.1
+      Leaf: Adelie
+      Leaf: Chinstrap
