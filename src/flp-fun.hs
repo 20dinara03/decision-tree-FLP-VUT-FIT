@@ -13,13 +13,6 @@ import Numeric (showGFloat)
 import Data.List (nub, sort, group)
 import Data.Maybe (fromMaybe)
 
-debug :: Bool
-debug = True  -- поставь False, если не хочешь отладку
-
-debugLog :: String -> IO ()
-debugLog msg = if debug then putStrLn msg else return ()
-
-
 -- ================= DATA TYPES ==================
 
 -- Representation of a decision tree node or leaf
