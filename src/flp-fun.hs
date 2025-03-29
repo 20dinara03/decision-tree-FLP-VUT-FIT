@@ -1,17 +1,19 @@
 -- ============================================================
---  Project: FLP - Decision Tree Classifier
+--  Project: FLP - Decision Tree Classifier and Trainer
 --  Author: Dinara Garipova
 --  Login: xgarip00
 --  Year: 2024/25
---  Description: Decision tree definition and classification 
---               from an indented text format.
+--  Description: Haskell implementation of a decision tree:
+--               - Subtask 1: Parsing and using a tree for classification
+--               - Subtask 2: Training a decision tree from labeled data 
+--                 using Gini impurity (CART-inspired algorithm)
 -- ============================================================
+
+-- ===============IMPORTS=========================
 
 import System.Environment (getArgs)
 import Control.Exception (catch, IOException)
-import Numeric (showGFloat)
 import Data.List (nub, sort, group)
-import Data.Maybe (fromMaybe)
 
 -- ================= DATA TYPES ==================
 
@@ -35,6 +37,10 @@ cleanLine line =
 countSpaces :: String -> Int
 countSpaces = length . takeWhile (== ' ')
 
+-- Removes all spaces in a line
+removeAllSpaces :: String -> String
+removeAllSpaces = filter (/= ' ')
+
 -- Splits a line by ':' and ',' 
 splitSpecial :: String -> [String]
 splitSpecial [] = []
@@ -43,10 +49,6 @@ splitSpecial s =
     in case rest of
         [] -> [word]
         (_:xs) -> word : splitSpecial xs
-
--- Removes all spaces in a line
-removeAllSpaces :: String -> String
-removeAllSpaces = filter (/= ' ')
 
 -- ================= TREE CONSTRUCTION ==================
 
@@ -77,22 +79,11 @@ buildTree allNodes (((idx, indent), tokens), rest) siblingIdx
                     [] -> (Empty, rest)
                     _ -> error $ "Cannot find two children for node at index " ++ show idx
 
--- ================= TREE PRINTING ==================
-
--- Formats a tree node or leaf as a readable string
-formatPoint :: Point -> String
-formatPoint (Node i t) = "Node: " ++ show i ++ ", " ++ showGFloat Nothing t ""
-formatPoint (Leaf label) = "Leaf: " ++ label
-
--- Prints the tree with indentation for readability
-printTree :: Tree -> Int -> IO ()
-printTree Empty _ = return ()
-printTree (Tree point left right) indent = do
-    putStrLn $ replicate indent ' ' ++ formatPoint point
-    printTree left (indent + 2)
-    printTree right (indent + 2)
-
 -- ================= CLASSIFICATION ==================
+
+-- Parses a line of input into a list of doubles
+parseInput :: String -> [Double]
+parseInput line = map read (splitSpecial line)
 
 -- Classifies a single input
 classify :: [Double] -> Tree -> String
@@ -103,32 +94,41 @@ classify input (Tree (Node index threshold) left right) =
         then classify input left
         else classify input right
 
--- Parses a line of input into a list of doubles
-parseInput :: String -> [Double]
-parseInput line = map read (splitSpecial line)
-
 -- ================= ERROR HANDLING ==================
 
 -- Handles file read errors
 errorHandler :: IOException -> IO ()
 errorHandler _ = putStrLn "Error: File not found or cannot be read!"
 
--- ====================================================
-gini :: [String] -> Double
-gini labels =
-    let total = fromIntegral $ length labels
-        groups = map length . group . sort $ labels
-        probs = map (\n -> fromIntegral n / total) groups
-    in 1.0 - sum (map (^2) probs)
+-- ============= PARSING INPUT =======================
 
--- ====================================================
+parseTrainLine :: String -> ([Double], String)
+parseTrainLine line =
+    let parts = splitSpecial line
+        features = map read (init parts)   
+        label = last parts                 
+    in (features, label)
 
-splitRows :: Int -> Double -> [([Double], String)] -> ([([Double], String)], [([Double], String)])
-splitRows attrIndex threshold rows =
-    (filter (\(fs, _) -> fs !! attrIndex <= threshold) rows,
-     filter (\(fs, _) -> fs !! attrIndex > threshold) rows)
+-- ================ TREE TRAINING =====================
 
--- ===================================================
+train :: [([Double], String)] -> Tree
+train [] = Empty
+train rows
+    | allSameClass rows = Tree (Leaf (snd (head rows))) Empty Empty
+    | otherwise =
+        let (bestAttr, bestThresh) = findBestSplit rows
+            (leftRows, rightRows) = splitRows bestAttr bestThresh rows
+            leftTree = train leftRows
+            rightTree = train rightRows
+        in Tree (Node bestAttr bestThresh) leftTree rightTree
+
+-- Checking the condition that all data of the same class
+
+allSameClass :: [([Double], String)] -> Bool
+allSameClass [] = True
+allSameClass ((_, c):xs) = all ((== c) . snd) xs
+
+-- ================= FINDING SPLIT ==========================
 
 findBestSplit :: [([Double], String)] -> (Int, Double)
 findBestSplit rows =
@@ -146,34 +146,30 @@ findBestSplit rows =
             in (weighted, (i, t))
     in snd $ minimum $ map score candidates
 
--- =================================================
+splitRows :: Int -> Double -> [([Double], String)] -> ([([Double], String)], [([Double], String)])
+splitRows attrIndex threshold rows =
+    (filter (\(fs, _) -> fs !! attrIndex <= threshold) rows,
+     filter (\(fs, _) -> fs !! attrIndex > threshold) rows)
 
-allSameClass :: [([Double], String)] -> Bool
-allSameClass [] = True
-allSameClass ((_, c):xs) = all ((== c) . snd) xs
+gini :: [String] -> Double
+gini labels =
+    let total = fromIntegral $ length labels
+        groups = map length . group . sort $ labels
+        probs = map (\n -> fromIntegral n / total) groups
+    in 1.0 - sum (map (^2) probs)
 
--- =================================================
+-- ================= TREE PRINTING ==================
 
-train :: [([Double], String)] -> Tree
-train [] = Empty
-train rows
-    | allSameClass rows = Tree (Leaf (snd (head rows))) Empty Empty
-    | otherwise =
-        let (bestAttr, bestThresh) = findBestSplit rows
-            (leftRows, rightRows) = splitRows bestAttr bestThresh rows
-            leftTree = train leftRows
-            rightTree = train rightRows
-        in Tree (Node bestAttr bestThresh) leftTree rightTree
+formatPoint :: Point -> String
+formatPoint (Node i t) = "Node: " ++ show i ++ ", " ++ shows t ""
+formatPoint (Leaf label) = "Leaf: " ++ label
 
--- ==================================================
-
-parseTrainLine :: String -> ([Double], String)
-parseTrainLine line =
-    let parts = splitSpecial line
-        features = map read (init parts)   
-        label = last parts                 
-    in (features, label)
-
+printTree :: Tree -> Int -> IO ()
+printTree Empty _ = return ()
+printTree (Tree point left right) indent = do
+    putStrLn $ replicate indent ' ' ++ formatPoint point
+    printTree left (indent + 2)
+    printTree right (indent + 2)
 
 -- ================= MAIN FUNCTION ==================
 
@@ -183,18 +179,15 @@ main = do
     case args of
         ["-1", treeFile, dataFile] -> do
             catch (do
-                -- Read and parse the tree file
                 treeContent <- readFile treeFile
                 let treeLines = map (cleanLine . filter (/= '\r')) (lines treeContent)
                 let indexedNodes = zip (zip [0..] (map countSpaces treeLines)) (map splitSpecial (map removeAllSpaces treeLines))
                 let (tree, _) = buildTree indexedNodes (head indexedNodes, tail indexedNodes) (-1)
 
-                -- Read and classify the input data
                 dataContent <- readFile dataFile
                 let newInputs = map parseInput (lines dataContent)
                 let results = map (`classify` tree) newInputs
 
-                -- Output classification results
                 mapM_ putStrLn results
                 )
                 errorHandler
